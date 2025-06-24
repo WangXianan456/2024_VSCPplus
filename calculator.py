@@ -91,7 +91,10 @@ urls = (
     '/add_user', 'AddUser',
     '/delete_user', 'DeleteUser',
     '/change_password', 'ChangePassword',
-    '/update_user', 'UpdateUser'
+    '/update_user', 'UpdateUser',
+    
+    '/Recommendation.html', 'Recommendation',
+    '/saveRecommendation', 'SaveRecommendation'
 
 )
 

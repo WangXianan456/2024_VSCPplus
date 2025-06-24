@@ -1,0 +1,106 @@
+$def with (username)
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>推荐分析</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <a class="navbar-brand" href="/">统计学平台</a>
+        <div class="collapse navbar-collapse">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item"><a class="nav-link" href="/FisherPlus.html">Fisher判别</a></li>
+                <li class="nav-item"><a class="nav-link" href="/Linear.html">一元回归</a></li>
+                <li class="nav-item"><a class="nav-link" href="/MLinear.html">多元回归</a></li>
+                <li class="nav-item"><a class="nav-link" href="/Logistic.html">逻辑回归</a></li>
+                <li class="nav-item"><a class="nav-link" href="/SVM.html">支持向量机</a></li>
+                <li class="nav-item"><a class="nav-link" href="/Recommendation.html">推荐分析</a></li>
+            </ul>
+            <span class="navbar-text">用户: $username</span>
+        </div>
+    </nav>
+    <div class="container mt-4">
+        <h2>推荐分析</h2>
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">推荐模型和数据集</h5>
+                <p>基于您的历史分析记录，以下是推荐的模型和数据集：</p>
+                <ul id="recommendations">
+                    #for item in recommendations['models']:
+                    <li>模型: $item (置信度: $recommendations['confidence'][loop.index0])</li>
+                    #endfor
+                    #for dataset in recommendations['datasets']:
+                    <li>数据集ID: $dataset</li>
+                    #endfor
+                </ul>
+                <canvas id="confidenceChart" width="400" height="200"></canvas>
+                <form id="savePreferenceForm">
+                    <div class="mb-3">
+                        <label for="model" class="form-label">选择模型</label>
+                        <select class="form-select" id="model" name="model">
+                            <option value="Linear Regression">线性回归</option>
+                            <option value="SVM">支持向量机</option>
+                            <option value="Logistic Regression">逻辑回归</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="dataset_id" class="form-label">数据集ID</label>
+                        <input type="text" class="form-control" id="dataset_id" name="dataset_id">
+                    </div>
+                    <button type="submit" class="btn btn-primary">保存偏好</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <script>
+        $(document).ready(function() {
+            // Draw confidence chart
+            const ctx = document.getElementById('confidenceChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: $json.dumps(recommendations['models']),
+                    datasets: [{
+                        label: '推荐置信度',
+                        data: $json.dumps(recommendations['confidence']),
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: { beginAtZero: true, max: 1 }
+                    }
+                }
+            });
+
+            // Handle form submission
+            $('#savePreferenceForm').submit(function(e) {
+                e.preventDefault();
+                $.ajax({
+                    url: '/saveRecommendation',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        model: $('#model').val(),
+                        dataset_id: $('#dataset_id').val()
+                    }),
+                    success: function(response) {
+                        if (response.success) {
+                            alert('偏好已保存！');
+                        } else {
+                            alert('保存失败: ' + response.message);
+                        }
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
+
