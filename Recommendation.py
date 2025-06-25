@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 import web
 import pymysql
@@ -10,37 +9,101 @@ import json
 from sklearn.preprocessing import StandardScaler
 import hashlib
 import time
+import os
 from datetime import datetime
-import tempfile
+
+
+def sqlSelect(sql):
+    conn = pymysql.connect(host='localhost', port=3306, user='root', passwd='123456', db='calculater')
+    cur = conn.cursor()
+    cur.execute(sql)
+    sqlData = cur.fetchall()
+    cur.close()
+    conn.close()
+    return sqlData
+
+
+def sqlWrite(sql):
+    conn = pymysql.connect(host='localhost', port=3306, user='root', passwd='123456', db='calculater')
+    cur = conn.cursor()
+    cur.execute(sql)
+    cur.close()
+    conn.commit()
+    conn.close()
+    return
+
+
+def connect_db():
+    try:
+        # 对于较新的 PyMySQL 版本
+        return pymysql.connect(
+            host='localhost',
+            port=3306,
+            user='root',
+            password='123456',
+            db='calculater',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+    except pymysql.Error as err:
+        print(f"Database error: {err}")
+        return None
 
 # Redis connection
 redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
 
 # MongoDB connection
-mongo_client = MongoClient('mongodb://localhost:27017/')
+mongo_client = MongoClient('mongodb://localhost:27017/', serverSelectionTimeoutMS=5000)
 mongo_db = mongo_client['stat_education']
 mongo_preferences = mongo_db['user_preferences']
-mongo_history = mongo_db['analysis_history']
+mongo_analysis_history = mongo_db['analysis_history']
 
-# Milvus connection
-milvus_client = Milvus(host='localhost', port='19530')
+# Milvus connection (compatible with 2.3.x)
+connections.connect(alias="default", host='localhost', port='19530')
+
 collection_name = 'dataset_embeddings'
-if not milvus_client.has_collection(collection_name):
-    milvus_client.create_collection({
-        'collection_name': collection_name,
-        'dimension': 64,  # Example dimension for dataset embeddings
-        'index_file_size': 1024,
-        'metric_type': MetricType.L2
-    })
-    milvus_client.create_index(collection_name, IndexType.IVF_FLAT, {'nlist': 1024})
 
+# Initialize Milvus collection (modern API)
+
+if not utility.has_collection(collection_name):
+    print(f"创建新集合: {collection_name}")
+    fields = [
+        FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
+        FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=64)
+    ]
+    schema = CollectionSchema(fields)
+    milvus_collection = Collection(collection_name, schema)
+    
+    index_params = {
+        "index_type": "IVF_FLAT",
+        "metric_type": "L2",
+        "params": {"nlist": 1024}
+    }
+    milvus_collection.create_index("embedding", index_params)
+else:
+    print(f"集合已存在: {collection_name}")
+    milvus_collection = Collection(collection_name)
+    milvus_collection.load()
+    
 # MySQL connection
+
+# MySQL connection (MySQL 8.4 compatible)
 def connect_db():
     try:
-        return pymysql.connect(host='localhost', port=3306, user='root', passwd='123456', db='calculater')
+        # 对于较新的 PyMySQL 版本
+        return pymysql.connect(
+            host='localhost',
+            port=3306,
+            user='root',
+            password='123456',
+            db='calculater',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
     except pymysql.Error as err:
         print(f"Database error: {err}")
         return None
+
 
 # Redis distributed lock
 def acquire_lock(lock_name, timeout=10):
@@ -55,13 +118,20 @@ def release_lock(lock_name):
     lock_key = f"lock:{lock_name}"
     redis_client.delete(lock_key)
 
+# Custom JSON encoder for datetime objects
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
 # Fetch analysis history from MySQL
 def fetch_mysql_history(username):
     db = connect_db()
     if not db:
         return []
     
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor(pymysql.cursors.DictCursor) 
     history = []
     
     # Fetch from linears table
@@ -102,20 +172,47 @@ def fetch_mysql_history(username):
     
     cursor.close()
     db.close()
+    
+    # Convert timestamps to datetime objects
+    for item in history:
+        if isinstance(item['timestamp'], str):
+            try:
+                item['timestamp'] = datetime.strptime(item['timestamp'], '%Y-%m-%d %H:%M:%S')
+            except:
+                pass
+                
     return sorted(history, key=lambda x: x['timestamp'], reverse=True)[:5]  # Limit to recent 5
 
 # Add new route to urls
 urls = (
+    '/static/(.*)', 'static',  # Add static files route
     '/Recommendation.html', 'Recommendation',
     '/saveRecommendation', 'SaveRecommendation'
 )
+
+# Static file handler
+class static:
+    def GET(self, path):
+        try:
+            web.header('Content-Type', 'application/javascript; charset=UTF-8')
+            return open('static/' + path, 'rb').read()
+        except IOError:
+            raise web.notfound()
+
+# Initialize web application components FIRST
+app = web.application(urls, globals())
+store = web.session.DiskStore('sessions')  # Use persistent directory
+session = web.session.Session(app, store)
+render = web.template.render('templates/')
+web.config.debug = False
 
 class Recommendation:
     def GET(self):
         if session.get('logged_in'):
             username = session.get('username', '未登录')
+            
             # Check Redis cache for recommendations
-            cache_key = f"recommendations:{username}"
+            cache_key = f"recom:model_data:{username}"
             cached_results = redis_client.get(cache_key)
             if cached_results:
                 return render.Recommendation(username, json.loads(cached_results))
@@ -125,7 +222,7 @@ class Recommendation:
             
             # Fetch history from MySQL and MongoDB
             mysql_history = fetch_mysql_history(username)
-            mongo_history = list(mongo_history.find({'username': username}).sort('timestamp', -1).limit(5))
+            mongo_history = list(mongo_analysis_history.find({'username': username}).sort('timestamp', -1).limit(5))
             
             # Combine and deduplicate history
             combined_history = []
@@ -137,16 +234,23 @@ class Recommendation:
                     seen.add(key)
             combined_history = sorted(combined_history, key=lambda x: x['timestamp'], reverse=True)[:5]
             
-            # Generate dataset embedding (simplified)
-            dataset = np.random.rand(1, 64)  # Replace with actual dataset embedding
+            # Generate dataset embedding (query only, no insertion)
+            query_vector = np.random.rand(1, 64)  # Fixed query vector for search
             scaler = StandardScaler()
-            dataset = scaler.fit_transform(dataset)
+            query_vector = scaler.fit_transform(query_vector)
             
-            # Query Milvus for similar datasets
-            milvus_client.insert(collection_name, dataset.tolist())
+            # Query Milvus for similar datasets (using search only)
             search_params = {'nprobe': 10}
-            results = milvus_client.search(collection_name, dataset.tolist(), 5, MetricType.L2, search_params)
-            recommended_datasets = [result.id for result in results[0]]
+            status, results = milvus_client.search(
+                collection_name, 
+                [query_vector.tolist()[0]], 
+                5, 
+                search_params
+            )
+            if not status.OK():
+                raise Exception(f"Milvus search failed: {status}")
+                
+            recommended_datasets = [int(result.id) for result in results[0]]
             
             # Generate recommendations based on history and preferences
             model_counts = {}
@@ -162,8 +266,13 @@ class Recommendation:
                 'confidence': [0.9 - i * 0.05 for i in range(len(recommended_models))]  # Example confidence
             }
             
-            # Cache recommendations in Redis
-            redis_client.setex(cache_key, 3600, json.dumps(recommendations))
+            # Cache recommendations in Redis with proper serialization
+            redis_client.setex(
+                cache_key, 
+                3600, 
+                json.dumps(recommendations, cls=DateTimeEncoder)
+            )
+            
             return render.Recommendation(username, recommendations)
         else:
             return "用户未登录，请登录后再试。"
@@ -185,7 +294,7 @@ class Recommendation:
                         upsert=True
                     )
                     # Save analysis history to MongoDB
-                    mongo_history.insert_one({
+                    mongo_analysis_history.insert_one({
                         'username': username,
                         'model': model,
                         'dataset_id': dataset_id,
@@ -208,7 +317,7 @@ class SaveRecommendation:
             dataset_id = data.get('dataset_id')
             
             # Save to MongoDB
-            mongo_history.insert_one({
+            mongo_analysis_history.insert_one({
                 'username': username,
                 'model': model,
                 'dataset_id': dataset_id,
@@ -218,15 +327,10 @@ class SaveRecommendation:
         else:
             return json.dumps({'success': False, 'message': '用户未登录'})
 
-# Update render and session
-render = web.template.render('templates/')
-web.config.debug = False
-app = web.application(urls, globals())
-root = tempfile.mkdtemp()
-store = web.session.DiskStore(root)
-session = web.session.Session(app, store)
-
 if __name__ == "__main__":
+    # Create sessions directory if not exists
+    if not os.path.exists('sessions'):
+        os.makedirs('sessions')
+    
     web.httpserver.runsimple(app.wsgifunc(), ("127.0.0.1", 8080))
     app.run()
-

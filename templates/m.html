@@ -1,0 +1,70 @@
+<!-- templates/Recommendation.html -->
+$def with (username, recommendations, json, available_datasets, status)
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>个性化推荐 - 智能分析平台</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        .center-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 60vh;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>个性化推荐</h2>
+        <a href="/" class="btn btn-secondary">返回首页</a>
+    </div>
+
+    <!-- 状态 3: 初始状态，显示生成按钮 -->
+    $if status == 'initial':
+        <div id="initial-view" class="center-container">
+            <h3>你好, $username!</h3>
+            <p class="text-muted">点击下方按钮，我们将为您量身打造专属的分析模型与数据集推荐。</p>
+            <button id="generate-btn" class="btn btn-primary btn-lg">开始生成推荐</button>
+        </div>
+
+    <!-- 状态 2: 任务进行中，显示加载动画 -->
+    $if status == 'pending':
+        <div id="pending-view" class="center-container">
+            <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+                <span class="sr-only">Loading...</span>
+            </div>
+            <h4 class="mt-3">正在为您生成推荐...</h4>
+            <p class="text-muted">这个过程可能需要一点时间，请稍候。页面将在完成后自动刷新。</p>
+        </div>
+
+    <!-- 状态 1: 结果就绪，显示推荐内容 -->
+    $if status == 'ready':
+        <div id="results-view">
+            <div class="alert alert-success">
+                <strong>推荐已生成！</strong> 这是根据您的使用历史和偏好为您定制的结果。
+                <button id="regenerate-btn" class="btn btn-info btn-sm float-right">重新生成</button>
+            </div>
+            <!-- (这里是您原有的显示结果的表格和表单，保持不变) -->
+            <h4>推荐分析模型</h4>
+            <!-- ... 表格 ... -->
+            <h4>推荐数据集</h4>
+            <!-- ... 表格 ... -->
+            <form action="/saveRecommendation" method="POST">
+            <!-- ... 表单 ... -->
+            </form>
+        </div>
+
+</div>
+
+<script>
+
+</script>
+
+</body>
+</html>

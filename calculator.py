@@ -20,9 +20,11 @@ import sys
 from sklearn.decomposition import PCA
 import redis
 from pymongo import MongoClient
-from pymilvus import Milvus, IndexType, MetricType
 from sklearn.preprocessing import StandardScaler
 import time
+import os
+from redis.lock import Lock
+from pymilvus import Milvus,connections, Collection, FieldSchema, CollectionSchema, DataType, utility
 
 
 def sqlSelect(sql):
@@ -47,38 +49,90 @@ def sqlWrite(sql):
 
 def connect_db():
     try:
-        return mysql.connector.connect(
+        # 对于较新的 PyMySQL 版本
+        return pymysql.connect(
             host='localhost',
-            port="3306",
+            port=3306,
             user='root',
             password='123456',
-            database='calculater'
+            db='calculater',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
         )
-    except mysql.connector.Error as err:
-        print(f"数据库错误: {err}")
+    except pymysql.Error as err:
+        print(f"Database error: {err}")
         return None
-
-
+    
+def get_available_datasets():
+    db = connect_db()
+    if not db:
+        return []
+    try:
+        with db.cursor(pymysql.cursors.DictCursor) as cursor:
+            cursor.execute("SELECT id, dataset_name FROM datasets ORDER BY dataset_name")
+            datasets = cursor.fetchall()
+            # 将 'dataset_name' 重命名为 'name' 以便在模板中更简洁地使用
+            return [{'id': d['id'], 'name': d['dataset_name']} for d in datasets]
+    except Exception as e:
+        print(f"获取可用数据集时出错: {e}")
+        return []
+    finally:
+        db.close()
+        
 # Redis connection
 redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
 
 # MongoDB connection
-mongo_client = MongoClient('mongodb://localhost:27017/')
+mongo_client = MongoClient('mongodb://localhost:27017/', serverSelectionTimeoutMS=5000)
 mongo_db = mongo_client['stat_education']
 mongo_preferences = mongo_db['user_preferences']
-mongo_history = mongo_db['analysis_history']
+mongo_analysis_history = mongo_db['analysis_history']
 
-# Milvus connection
-milvus_client = Milvus(host='localhost', port='19530')
+# Milvus connection (compatible with 2.3.x)
+connections.connect(alias="default", host='localhost', port='19530')
+
 collection_name = 'dataset_embeddings'
-if not milvus_client.has_collection(collection_name):
-    milvus_client.create_collection({
-        'collection_name': collection_name,
-        'dimension': 64,  # Example dimension for dataset embeddings
-        'index_file_size': 1024,
-        'metric_type': MetricType.L2
-    })
-    milvus_client.create_index(collection_name, IndexType.IVF_FLAT, {'nlist': 1024})
+
+# Initialize Milvus collection (modern API)
+
+if not utility.has_collection(collection_name):
+    print(f"创建新集合: {collection_name}")
+    fields = [
+        FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
+        FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=64)
+    ]
+    schema = CollectionSchema(fields)
+    milvus_collection = Collection(collection_name, schema)
+    
+    index_params = {
+        "index_type": "IVF_FLAT",
+        "metric_type": "L2",
+        "params": {"nlist": 1024}
+    }
+    milvus_collection.create_index("embedding", index_params)
+else:
+    print(f"集合已存在: {collection_name}")
+    milvus_collection = Collection(collection_name)
+    milvus_collection.load()
+    
+# MySQL connection
+
+# MySQL connection (MySQL 8.4 compatible)
+def connect_db():
+    try:
+        # 对于较新的 PyMySQL 版本
+        return pymysql.connect(
+            host='localhost',
+            port=3306,
+            user='root',
+            password='123456',
+            db='calculater',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+    except pymysql.Error as err:
+        print(f"Database error: {err}")
+        return None
 
 
 # Redis distributed lock
@@ -94,13 +148,20 @@ def release_lock(lock_name):
     lock_key = f"lock:{lock_name}"
     redis_client.delete(lock_key)
 
+# Custom JSON encoder for datetime objects
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
 # Fetch analysis history from MySQL
 def fetch_mysql_history(username):
     db = connect_db()
     if not db:
         return []
     
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor(pymysql.cursors.DictCursor) 
     history = []
     
     # Fetch from linears table
@@ -141,7 +202,64 @@ def fetch_mysql_history(username):
     
     cursor.close()
     db.close()
+    
+    # Convert timestamps to datetime objects
+    for item in history:
+        if isinstance(item['timestamp'], str):
+            try:
+                item['timestamp'] = datetime.strptime(item['timestamp'], '%Y-%m-%d %H:%M:%S')
+            except:
+                pass
+                
     return sorted(history, key=lambda x: x['timestamp'], reverse=True)[:5]  # Limit to recent 5
+
+def generate_recommendations_for_user(username):
+    """为指定用户生成推荐数据"""
+    print(f"开始为用户 {username} 生成推荐数据...")
+    user_prefs = mongo_preferences.find_one({'username': username}) or {'preferred_models': []}
+    mysql_history = fetch_mysql_history(username)
+    mongo_history = list(mongo_analysis_history.find({'username': username}).sort('timestamp', -1).limit(5))
+    
+    combined_history = []
+    seen = set()
+    for item in mysql_history + mongo_history:
+        key = f"{item['model']}_{item['timestamp']}"
+        if key not in seen:
+            combined_history.append(item)
+            seen.add(key)
+    combined_history = sorted(combined_history, key=lambda x: x['timestamp'], reverse=True)[:5]
+    
+    query_vector = np.random.rand(1, 64)
+    scaler = StandardScaler()
+    query_vector = scaler.fit_transform(query_vector)[0].tolist()
+    
+    search_params = {"metric_type": "L2", "params": {"nprobe": 10}}
+    results = milvus_collection.search(
+        data=[query_vector],
+        anns_field="embedding",
+        param=search_params,
+        limit=5,
+        output_fields=["id"]
+    )
+    
+    recommended_datasets = [hit.id for hits in results for hit in hits]
+    
+    model_counts = {}
+    for item in combined_history:
+        model = item['model']
+        model_counts[model] = model_counts.get(model, 0) + 1
+    recommended_models = user_prefs.get('preferred_models', []) + list(model_counts.keys())
+    recommended_models = list(dict.fromkeys(recommended_models))[:3]
+    
+    recommendations = {
+        'models': recommended_models,
+        'datasets': recommended_datasets,
+        'confidence': [0.9 - i * 0.05 for i in range(len(recommended_models))]
+    }
+    
+    print(f"为用户 {username} 生成推荐数据完成: {recommendations}")
+    return recommendations
+
 
 urls = (
     '/', 'index',
@@ -183,7 +301,13 @@ urls = (
     '/change_password', 'ChangePassword',
     '/update_user', 'UpdateUser',
     
+    '/static/(.*)', 'static',  # Add static files route
     '/Recommendation.html', 'Recommendation',
+    '/check_recommendation_status', 'CheckRecommendationStatus',
+    '/generateRecommendation', 'GenerateRecommendation',
+    
+    '/trigger_recommendation', 'TriggerRecommendation', # <-- 新增：专门用于触发任务
+    '/compare_models', 'compare_models',
     '/saveRecommendation', 'SaveRecommendation'
 
 )
@@ -214,17 +338,19 @@ class index:
 class LoginPage:
     def POST(self):
         i = web.input()
-        account = i.get('account')
+        account = i.get('account')  # 获取account字段
         password = i.get('password')
 
         login_success, role = validate_login(account, password)
         if login_success:
+            # 从数据库中获取用户名
             username = get_username_from_db(account)
             session.logged_in = True
             session.account = account
             session.username = username
             session.role = role
-            print(f"User logged in: {account}, username: {username}, role: {role}")
+            print(f"用户登录成功: account={account}, username={username}, role={role}")
+            
             web.header('Content-Type', 'application/json')
             if role == 'admin':
                 return json.dumps({'success': True, 'redirect': '/admin'})
@@ -233,7 +359,8 @@ class LoginPage:
         else:
             web.header('Content-Type', 'application/json')
             return json.dumps({'success': False, 'error': '用户名或密码错误'})
-
+        
+        
 class Logout:
     def POST(self):
         session.kill()
@@ -263,34 +390,48 @@ class RegisterPage:
 
 def validate_login(account, password):
     db = connect_db()
-    if db:
-        cursor = db.cursor(dictionary=True)
-        # 查询密码和角色
-        cursor.execute("SELECT password, role FROM user WHERE account = %s", (account,))
-        user_data = cursor.fetchone()
-        cursor.close()
-        db.close()
-        if user_data and hashlib.sha256(password.encode()).hexdigest() == user_data['password']:
-            # 返回布尔值和角色
-            return True, user_data['role']
-        else:
-            # 登录失败时，返回False和None
+    if not db:
+        return False, None
+    
+    try:
+        with db.cursor(pymysql.cursors.DictCursor) as cursor:
+            # 使用SHA-256加密密码进行比对
+            hashed_password = hashlib.sha256(password.encode()).hexdigest()
+            
+            # 使用account字段进行查询
+            cursor.execute("""
+                SELECT id, username, role 
+                FROM user 
+                WHERE account = %s AND password = %s
+            """, (account, hashed_password))
+            
+            user = cursor.fetchone()
+            
+            if user:
+                return True, user['role']
             return False, None
-    # 如果数据库连接失败，也返回False和None
-    return False, None
-
-def get_username_from_db(account):
-    db = connect_db()
-    if db:
-        cursor = db.cursor()
-        cursor.execute("SELECT username FROM user WHERE account = %s", (account,))
-        result = cursor.fetchone()
-        cursor.close()
+    except Exception as e:
+        print(f"登录验证错误: {e}")
+        return False, None
+    finally:
         db.close()
-        if result:
-            return result[0]
-    return None
-
+        
+def get_username_from_db(account):
+    """从数据库获取用户名"""
+    db = connect_db()
+    if not db:
+        return account  # 默认返回account
+    
+    try:
+        with db.cursor(pymysql.cursors.DictCursor) as cursor:
+            cursor.execute("SELECT username FROM user WHERE account = %s", (account,))
+            user = cursor.fetchone()
+            return user['username'] if user else account
+    except Exception as e:
+        print(f"获取用户名错误: {e}")
+        return account
+    finally:
+        db.close()
 
 def add_user(username, account, password):
     db = connect_db()
@@ -722,7 +863,7 @@ class HistoryPage:
             username = session.get('username', '未登录')
 
             db = connect_db()
-            cursor = db.cursor(dictionary=True)
+            cursor = db.cursor(pymysql.cursors.DictCursor) 
             sql = """
                 SELECT fisher.*, user.username 
                 FROM fisher 
@@ -793,7 +934,7 @@ class Linearhistory:
             username = session.get('username', '未登录')
 
             db = connect_db()
-            cursor = db.cursor(dictionary=True)
+            cursor = db.cursor(pymysql.cursors.DictCursor) 
             sql = """
                     SELECT linears.*, user.username
                     FROM linears
@@ -894,7 +1035,7 @@ class Logistichistory:
             username = session.get('username', '未登录')
 
             db = connect_db()
-            cursor = db.cursor(dictionary=True)
+            cursor = db.cursor(pymysql.cursors.DictCursor) 
             sql = """
                 SELECT logistic.*, user.username 
                 FROM logistic 
@@ -966,7 +1107,7 @@ class SVMHistory:
             username = session.get('username', '未登录')
 
             db = connect_db()
-            cursor = db.cursor(dictionary=True)
+            cursor = db.cursor(pymysql.cursors.DictCursor)
             sql = """
                     SELECT svm.*, user.username
                     FROM svm
@@ -1056,84 +1197,155 @@ class UpdateUser:
         cursor.close()
         db.close()
         return json.dumps({'success': True, 'message': '用户信息已更新'})
+class static:
+    def GET(self, path):
+        try:
+            web.header('Content-Type', 'application/javascript; charset=UTF-8')
+            return open('static/' + path, 'rb').read()
+        except IOError:
+            raise web.notfound()
+class TriggerRecommendation:
+    def POST(self):
+        web.header('Content-Type', 'application/json')
+        if not session.get('logged_in'):
+            return json.dumps({'status': 'error', 'message': 'Not logged in'})
+        
+        username = session.get('username')
+        task_in_progress_key = f"recom:task_in_progress:{username}"
+        cache_key = f"recom:model_data:{username}"
 
+        # 新增：判断是否为强制刷新
+        try:
+            data = json.loads(web.data())
+        except Exception:
+            data = {}
+        force = data.get('force', False)
 
+        # 如果是强制刷新，先删除缓存和任务标记
+        if force:
+            redis_client.delete(cache_key)
+            redis_client.delete(task_in_progress_key)
+
+        # 如果结果已经存在，没必要重新生成（除非force）
+        if not force and redis_client.exists(cache_key):
+            return json.dumps({'status': 'info', 'message': 'Recommendation already exists.'})
+
+        # 如果任务已经在进行中，也告知前端
+        if redis_client.exists(task_in_progress_key):
+            return json.dumps({'status': 'info', 'message': 'Task already in progress.'})
+
+        print(f"为用户 '{username}' 创建推荐任务。")
+        task = {'username': username}
+        redis_client.lpush("recom:task_queue", json.dumps(task))
+        # 标记任务已推送，10分钟过期
+        redis_client.setex(task_in_progress_key, 600, "1") 
+        print("任务已推送到队列。")
+        return json.dumps({'status': 'pending', 'message': 'Recommendation task started.'})
+
+class CheckRecommendationStatus:
+    def GET(self):
+        if not session.get('logged_in'):
+            return json.dumps({'status': 'error', 'message': 'Not logged in'})
+        
+        username = session.get('username')
+        cache_key = f"recom:model_data:{username}"
+        task_in_progress_key = f"recom:task_in_progress:{username}"
+        
+        if redis_client.exists(cache_key):
+            return json.dumps({'status': 'ready'})
+        elif redis_client.exists(task_in_progress_key):
+            return json.dumps({'status': 'pending'})
+        else:
+            # 如果既没有结果也没有进行中的任务，可以认为是初始状态
+            # 或者根据您的业务逻辑返回 'initial'
+            return json.dumps({'status': 'initial'})
+
+# 新增一个类来处理生成请求，这比在GET请求中创建任务更好
+class GenerateRecommendation:
+    def POST(self):
+        web.header('Content-Type', 'application/json')
+        if not session.get('logged_in'):
+            return json.dumps({'status': 'error', 'message': 'Not logged in'})
+        
+        username = session.get('username')
+        task_in_progress_key = f"recom:task_in_progress:{username}"
+
+        if redis_client.exists(task_in_progress_key):
+            return json.dumps({'status': 'info', 'message': 'Task already in progress'})
+
+        print(f"为用户 '{username}' 创建推荐任务。")
+        task = {'username': username}
+        redis_client.lpush("recom:task_queue", json.dumps(task))
+        # 标记任务已推送，10分钟过期
+        redis_client.setex(task_in_progress_key, 600, "1") 
+        print("任务已推送到队列。")
+        return json.dumps({'status': 'success', 'message': 'Task started'})
+
+# --- 请用下面的代码块完全替换您现有的 Recommendation 类 ---
 class Recommendation:
     def GET(self):
-        if session.get('logged_in'):
-            username = session.get('username', '未登录')
-            # Check Redis cache for recommendations
-            cache_key = f"recommendations:{username}"
-            cached_results = redis_client.get(cache_key)
-            if cached_results:
-                return render.Recommendation(username, json.loads(cached_results))
-            
-            # Fetch user preferences from MongoDB
-            user_prefs = mongo_preferences.find_one({'username': username}) or {'preferred_models': []}
-            
-            # Fetch history from MySQL and MongoDB
-            mysql_history = fetch_mysql_history(username)
-            mongo_history = list(mongo_history.find({'username': username}).sort('timestamp', -1).limit(5))
-            
-            # Combine and deduplicate history
-            combined_history = []
-            seen = set()
-            for item in mysql_history + mongo_history:
-                key = f"{item['model']}_{item['timestamp']}"
-                if key not in seen:
-                    combined_history.append(item)
-                    seen.add(key)
-            combined_history = sorted(combined_history, key=lambda x: x['timestamp'], reverse=True)[:5]
-            
-            # Generate dataset embedding (simplified)
-            dataset = np.random.rand(1, 64)  # Replace with actual dataset embedding
-            scaler = StandardScaler()
-            dataset = scaler.fit_transform(dataset)
-            
-            # Query Milvus for similar datasets
-            milvus_client.insert(collection_name, dataset.tolist())
-            search_params = {'nprobe': 10}
-            results = milvus_client.search(collection_name, dataset.tolist(), 5, MetricType.L2, search_params)
-            recommended_datasets = [result.id for result in results[0]]
-            
-            # Generate recommendations based on history and preferences
-            model_counts = {}
-            for item in combined_history:
-                model = item['model']
-                model_counts[model] = model_counts.get(model, 0) + 1
-            recommended_models = user_prefs.get('preferred_models', []) + list(model_counts.keys())
-            recommended_models = list(dict.fromkeys(recommended_models))[:3]  # Deduplicate and limit
-            
-            recommendations = {
-                'models': recommended_models,
-                'datasets': recommended_datasets,
-                'confidence': [0.9 - i * 0.05 for i in range(len(recommended_models))]  # Example confidence
-            }
-            
-            # Cache recommendations in Redis
-            redis_client.setex(cache_key, 3600, json.dumps(recommendations))
-            return render.Recommendation(username, recommendations)
-        else:
+        if not session.get('logged_in'):
+            # 理论上应该重定向到登录页，但这里保持与您原来一致
             return "用户未登录，请登录后再试。"
+            
+        username = session.get('username')
+        print(f"用户 '{username}' 请求推荐页面")
+
+        # 1. 确定当前状态
+        status = ''
+        recommendations = None
+        
+        cache_key = f"recom:model_data:{username}"
+        task_in_progress_key = f"recom:task_in_progress:{username}"
+
+        if redis_client.exists(cache_key):
+            status = 'ready'
+            print(f"状态: ready (命中缓存: {cache_key})")
+            cached_results = redis_client.get(cache_key)
+            recommendations = json.loads(cached_results)
+        elif redis_client.exists(task_in_progress_key):
+            status = 'pending'
+            print(f"状态: pending (任务进行中: {task_in_progress_key})")
+        else:
+            status = 'initial'
+            print("状态: initial (无缓存或进行中的任务)")
+
+        # 2. 准备模板所需的所有数据
+        # 即使在非 'ready' 状态下，也传递一个空列表，避免模板出错
+        available_datasets = get_available_datasets() if status == 'ready' else []
+
+        # 3. 使用确定的状态，调用唯一的模板
+        return render.Recommendation(
+            username=username, 
+            recommendations=recommendations, 
+            json=json, 
+            available_datasets=available_datasets, 
+            status=status
+        )
 
     def POST(self):
+        # POST方法保持不变
         if session.get('logged_in'):
             username = session.get('username')
             data = json.loads(web.data())
             model = data.get('model')
             dataset_id = data.get('dataset_id')
             
-            # Acquire distributed lock
-            if acquire_lock(f"recommendation:{username}"):
+            lock = Lock(redis_client, f"recommendation:{username}", timeout=10)
+            if lock.acquire(blocking=False):
                 try:
-                    # Save preference to MongoDB
                     mongo_preferences.update_one(
                         {'username': username},
-                        {'$set': {'preferred_models': [model], 'last_updated': datetime.now()}},
+                        {
+                            '$set': {
+                                'preferred_models': [model],
+                                'last_updated': datetime.now()
+                            },
+                            '$setOnInsert': {'created_at': datetime.now()}
+                        },
                         upsert=True
                     )
-                    # Save analysis history to MongoDB
-                    mongo_history.insert_one({
+                    mongo_analysis_history.insert_one({
                         'username': username,
                         'model': model,
                         'dataset_id': dataset_id,
@@ -1141,11 +1353,12 @@ class Recommendation:
                     })
                     return json.dumps({'success': True})
                 finally:
-                    release_lock(f"recommendation:{username}")
+                    lock.release()
             else:
                 return json.dumps({'success': False, 'message': '无法获取锁，请稍后重试'})
         else:
             return json.dumps({'success': False, 'message': '用户未登录'})
+
 
 class SaveRecommendation:
     def POST(self):
@@ -1155,26 +1368,93 @@ class SaveRecommendation:
             model = data.get('model')
             dataset_id = data.get('dataset_id')
             
-            # Save to MongoDB
-            mongo_history.insert_one({
+            mongo_analysis_history.insert_one({
                 'username': username,
                 'model': model,
                 'dataset_id': dataset_id,
                 'timestamp': datetime.now()
             })
-            return json.dumps({'success': True})
+
+            return json.dumps({'success': True, 'message': '偏好已成功保存！'})
         else:
+
             return json.dumps({'success': False, 'message': '用户未登录'})
+        
+class compare_models:
+    def POST(self):
+        """
+        处理模型比较请求。
+        从前端接收一个数据集名称和多个模型名称，
+        从数据库查询它们的性能分数并返回。
+        """
+        web.header('Content-Type', 'application/json')
+        
+        try:
+            data = json.loads(web.data())
+            dataset_name = data.get('dataset_name')
+            selected_models = data.get('models')
+
+            if not dataset_name or not selected_models:
+                web.ctx.status = '400 Bad Request'
+                return json.dumps({"error": "缺少数据集或模型名称"})
+
+            db = connect_db()
+            if not db:
+                web.ctx.status = '500 Internal Server Error'
+                return json.dumps({"error": "数据库连接失败"})
+
+            with db.cursor() as cursor:
+                # 使用参数化查询来防止SQL注入
+                # 为 IN 子句创建占位符
+                placeholders = ', '.join(['%s'] * len(selected_models))
+                
+                sql = f"""
+                    SELECT 
+                        model_name AS model, 
+                        metric_name, 
+                        score 
+                    FROM 
+                        model_performance 
+                    WHERE 
+                        dataset_name = %s AND model_name IN ({placeholders})
+                """
+                
+                # 组合查询参数
+                params = [dataset_name] + selected_models
+                
+                cursor.execute(sql, params)
+                results = cursor.fetchall()
+                
+                return json.dumps(results)
+
+        except json.JSONDecodeError:
+            web.ctx.status = '400 Bad Request'
+            return json.dumps({"error": "无效的JSON请求"})
+        except Exception as e:
+            print(f"比较模型时出错: {e}")
+            web.ctx.status = '500 Internal Server Error'
+            return json.dumps({"error": f"服务器内部错误: {e}"})
+        finally:
+            if 'db' in locals() and db.open:
+                db.close()
 
 
-render = web.template.render('templates/')
 web.config.debug = False
 app = web.application(urls, globals())
 root = tempfile.mkdtemp()
-store = web.session.DiskStore(root)
+store = web.session.DiskStore('sessions')  
 session = web.session.Session(app, store)
 
-if __name__ == "__main__":
+# calculator.py (文件末尾)
+render = web.template.render('templates/', globals={
+    'session': session
+})
 
+render_pending = web.template.render('templates/')
+if __name__ == "__main__":
+    # Create sessions directory if not exists
+    if not os.path.exists('sessions'):
+        os.makedirs('sessions')
+    
     web.httpserver.runsimple(app.wsgifunc(), ("127.0.0.1", 8080))
     app.run()

@@ -1,0 +1,75 @@
+$def with (username, recommendations)
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>推荐分析</title>
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <script src="/static/js/jquery-3.6.0.min.js"></script>
+    <script src="/static/js/chart.min.js"></script>
+    <script src="/static/js/recommendation.js"></script>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <a class="navbar-brand" href="/">统计学平台</a>
+        <div class="collapse navbar-collapse">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item"><a class="nav-link" href="/FisherPlus.html">Fisher判别</a></li>
+                <li class="nav-item"><a class="nav-link" href="/Linear.html">一元回归</a></li>
+                <li class="nav-item"><a class="nav-link" href="/MLinear.html">多元回归</a></li>
+                <li class="nav-item"><a class="nav-link" href="/Logistic.html">逻辑回归</a></li>
+                <li class="nav-item"><a class="nav-link" href="/SVM.html">支持向量机</a></li>
+                <li class="nav-item"><a class="nav-link" href="/Recommendation.html">推荐分析</a></li>
+            </ul>
+            <span class="navbar-text">用户: $username</span>
+        </div>
+    </nav>
+    <div class="container mt-4">
+        <h2>推荐分析</h2>
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">推荐模型和数据集</h5>
+                <p>基于您的历史分析记录，以下是推荐的模型和数据集：</p>
+                <ul id="recommendations">
+                    #for idx, item in enumerate(recommendations['models'])
+                    <li>模型: $item (置信度: ${recommendations['confidence'][idx]})</li>
+                    #endfor
+                    #for dataset in recommendations['datasets']
+                    <li>数据集ID: $dataset</li>
+                    #endfor
+                </ul>
+                
+                <!-- 图表容器 - 添加固定高度 -->
+                <div style="height: 300px;">
+                    <canvas id="confidenceChart"></canvas>
+                </div>
+                
+                <!-- 添加数据容器用于JS初始化 -->
+                <div id="reco-data" style="display:none;">
+                    $:json.dumps({
+                        'models': recommendations['models'],
+                        'confidence': recommendations['confidence'],
+                        'datasets': recommendations['datasets']
+                    })
+                </div>
+                
+                <!-- 表单 -->
+                <form id="recom-savePreferenceForm">
+                    <div class="mb-3">
+                        <label for="recom-model" class="form-label">选择模型</label>
+                        <select class="form-select" id="recom-model" name="model">
+                            <option value="Linear Regression">线性回归</option>
+                            <option value="SVM">支持向量机</option>
+                            <option value="Logistic Regression">逻辑回归</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="recom-dataset_id" class="form-label">数据集ID</label>
+                        <input type="text" class="form-control" id="recom-dataset_id" name="dataset_id">
+                    </div>
+                    <button type="submit" class="btn btn-primary">保存偏好</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
