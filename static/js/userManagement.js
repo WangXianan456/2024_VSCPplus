@@ -13,6 +13,11 @@ function fetchUsers() {
                 }
             }
 
+            // 修正：如果后端返回的是对象且有 users 字段，则取 users 字段
+            if (!Array.isArray(data) && typeof data === 'object' && data.users) {
+                data = data.users;
+            }
+
             if (!Array.isArray(data)) {
                 console.error("Expected an array but received:", typeof data);
                 data = [];

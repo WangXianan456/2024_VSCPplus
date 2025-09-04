@@ -57,7 +57,7 @@ def connect_db():
             password='123456',
             db='calculater',
             charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
+         
         )
     except pymysql.Error as err:
         print(f"Database error: {err}")
@@ -93,8 +93,6 @@ connections.connect(alias="default", host='localhost', port='19530')
 
 collection_name = 'dataset_embeddings'
 
-# Initialize Milvus collection (modern API)
-
 if not utility.has_collection(collection_name):
     print(f"创建新集合: {collection_name}")
     fields = [
@@ -128,7 +126,7 @@ def connect_db():
             password='123456',
             db='calculater',
             charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
+        
         )
     except pymysql.Error as err:
         print(f"Database error: {err}")
@@ -229,10 +227,12 @@ def generate_recommendations_for_user(username):
             seen.add(key)
     combined_history = sorted(combined_history, key=lambda x: x['timestamp'], reverse=True)[:5]
     
+    # 1. 生成一个查询向量 query_vector（模拟用户当前兴趣或数据特征）
     query_vector = np.random.rand(1, 64)
     scaler = StandardScaler()
     query_vector = scaler.fit_transform(query_vector)[0].tolist()
-    
+
+    # 2. 在 Milvus 中用 query_vector 检索最相似的数据集 embedding
     search_params = {"metric_type": "L2", "params": {"nprobe": 10}}
     results = milvus_collection.search(
         data=[query_vector],
@@ -241,14 +241,15 @@ def generate_recommendations_for_user(username):
         limit=5,
         output_fields=["id"]
     )
-    
+
+    # 3. 推荐的数据集ID就是与 query_vector 距离最近的 embedding 的 id
     recommended_datasets = [hit.id for hits in results for hit in hits]
     
     model_counts = {}
     for item in combined_history:
         model = item['model']
         model_counts[model] = model_counts.get(model, 0) + 1
-    recommended_models = user_prefs.get('preferred_models', []) + list(model_counts.keys())
+    recommended_models = user_prefs.get('preferred_  models', []) + list(model_counts.keys())
     recommended_models = list(dict.fromkeys(recommended_models))[:3]
     
     recommendations = {
@@ -1379,7 +1380,7 @@ class SaveRecommendation:
         else:
 
             return json.dumps({'success': False, 'message': '用户未登录'})
-        
+
 class compare_models:
     def POST(self):
         """
@@ -1403,7 +1404,8 @@ class compare_models:
                 web.ctx.status = '500 Internal Server Error'
                 return json.dumps({"error": "数据库连接失败"})
 
-            with db.cursor() as cursor:
+            # FIX: Use DictCursor to return results as dictionaries
+            with db.cursor(pymysql.cursors.DictCursor) as cursor:
                 # 使用参数化查询来防止SQL注入
                 # 为 IN 子句创建占位符
                 placeholders = ', '.join(['%s'] * len(selected_models))
@@ -1425,6 +1427,7 @@ class compare_models:
                 cursor.execute(sql, params)
                 results = cursor.fetchall()
                 
+                # Now 'results' will be a list of dictionaries, which is what the frontend expects.
                 return json.dumps(results)
 
         except json.JSONDecodeError:
