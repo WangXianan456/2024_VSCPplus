@@ -724,7 +724,7 @@ class calculate1:
         x1 = np.hstack((np.ones((m, 1)), X))
         theta = np.zeros(n + 1)
 
-        # 梯度下降参数
+        # 梯度下降参数  
         alpha = 0.01
         iterations = 1000
 
