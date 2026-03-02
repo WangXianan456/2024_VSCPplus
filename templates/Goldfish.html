@@ -5,12 +5,11 @@ $def with (id, sqlData, results, model_errors, username)
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 	<link rel="stylesheet" href="static/css/bootstrap.min.css">
-	<script src="https://cdn.staticfile.org/jquery/2.1.1/jquery.min.js"></script>
-	<script src="https://cdn.staticfile.org/twitter-bootstrap/3.3.7/js/bootstrap.min.js"></script>
+	<script src="static/js/jquery.min.js"></script>
+	<script src="static/js/bootstrap.min.js"></script>
+	<script src="static/js/chart.js"></script>
+	<script src="static/libs/jquery-2.1.1.min.js"></script>
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-MML-AM_CHTML" async></script>
-
-	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
 
 	<script src="/static/js/checkLogin.js"></script>
 		<script src="/static/js/baoyu.js"></script>
@@ -157,6 +156,7 @@ $def with (id, sqlData, results, model_errors, username)
 				<li><a href="SVM.html" target="_blank">支持向量机分析</a></li>
 				<li class="active"><a href="Goldfish.html" target="_blank">机器学习案例</a></li>
 				<li><a onclick="checkLogin()" target="_blank">查看历史记录</a></li>
+				<li><a onclick="goToRecommendation()" class="nav-link" href="javascript:void(0);">推荐分析</a></li>	
 			</ul>
 			</div>
 

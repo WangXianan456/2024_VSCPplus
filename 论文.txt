@@ -1,0 +1,36 @@
+一、	研究目的和意义
+近年来，我国高度重视教育信息化与数字化转型，党和国家政策以及国际会议均将教育数字化作为重要发展方向[1][2][3]。教育数字化深度融合人工智能、大数据、教育技术等多学科力量，推动传统课堂向智能化、数据驱动的教学模式转变[4]。在大数据时代背景下，统计学作为数据科学的核心基础课程[5][6]，对数据价值发现、科学预测与决策支持具有关键作用。然而，现有教学资源与在线平台在统计学实践教学方面仍存在明显短板：教学内容多为静态呈现，缺乏对学习行为的动态追踪与个性化反馈机制；实践环节难以因材施教，学生在面对抽象的统计理论与实际数据分析任务时缺乏直观的操作指导与即时支持[7][8]。
+为有效解决上述问题，本研究设计并实现了一款面向统计学教育的集成化辅助教学平台。该平台深度结合数据可视化与智能分析技术，支持学生自主上传真实数据集、实时生成多类型统计图表、获得基于机器学习的动态反馈与个性化学习路径推荐，从而帮助学生将抽象理论与数据分析实践有效衔接，提高学习效率与实战能力[9]。本项目不仅为统计学与教育技术的交叉研究提供了新的实践模式与技术方法，也将丰富数字教育资源供给，优化在线教学的过程化与可视化支持，推进智慧教育建设，满足大数据时代对复合型数据人才的培养需求。
+
+二、国内外研究现状及其发展
+在全球教育数字化浪潮的推动下，在线学习平台和数据驱动技术对传统教学模式产生了深刻影响。以Khan Academy、Coursera为代表的大规模开放在线课程（MOOCs）[10]通过视频教学、在线测验与学习路径推荐，显著提升了教育资源的可及性与规模化教学能力。然而，已有研究也指出，这些平台多基于预设的课程路径和标准化的学习序列，在动态响应学习者差异化需求和提供个性化适配支持方面仍显不足，难以满足不同背景学习者的即时学习需求[11][12][13]。统计学教学中的问题尤为突出：理论知识的抽象性与数据分析工具的实操性往往脱节，学生难以将数学模型与真实数据分析场景有机结合，从而限制了教学效果的深化与学习迁移能力的培养[14]。
+国际学术界近年来积极探索将人工智能与机器学习技术应用于个性化学习场景——通过收集并分析学习行为数据，为学习者提供智能化的学习路径建议与实时反馈[11]。同时，研究者尝试将交互式数据分析环境（如Jupyter Notebook）引入课堂教学[15]，以增强学生的实践操作能力和计算思维。但现有工具多为面向专业开发者的通用分析平台，缺乏针对统计学教学场景中概念可视化、过程化引导与作业自动化评估等方面的专门优化设计[16]。教育大数据与学习分析（Learning Analytics）领域的研究表明，将实时可视化技术与个性化推荐算法相结合，能够有效提升学习者对复杂统计概念的理解深度与知识迁移能力，这为面向统计学的智能教学系统设计提供了重要的理论依据[12]。
+国内方面，尽管教育信息化起步相对较晚，但近年来发展迅速。以"学习通""中国大学MOOC"为代表的国内在线教育平台在课程资源整合和规模化传播方面取得了显著成效[17]。然而，国内统计学在线教学仍普遍依赖录播课程、静态题库与有限的师生互动，缺乏对学习行为的精细化跟踪与基于数据挖掘的个性化反馈机制；在实践教学环节，对高质量真实数据资源的供给和多层次教学引导支持明显不足[18]。部分高校和研究团队已开发了基于云计算架构的教学辅助系统，用于支持在线数据分析与统计建模实验，但多数研究聚焦于功能实现层面，尚未形成覆盖学习全过程、能够根据学情动态调整教学路径的系统性解决方案[19]。
+综上所述，国内外在教育技术与统计学数字化教学领域虽取得一定进展，但仍存在以下共同短板：第一，现有平台以知识内容传递为主，缺乏过程化、情境化的实践训练环节，学生难以获得"做中学"的深度体验；第二，对个体学习过程的数据挖掘与动态反馈机制尚不完善，未能充分发挥教育大数据的潜在价值；第三，针对统计学学科特性（如抽象理论建模与真实数据分析深度结合）的专用教学工具与智能化评估体系明显不足[20]。
+基于上述研究空白与实践需求，本研究提出并实现了一套面向统计学教学的集成化智能辅助平台。该平台通过数据可视化技术与统计教学内容的深度融合、基于真实案例的实践驱动教学模式，以及基于用户行为与向量检索的混合推荐系统，实现了过程化的动态反馈与个性化学习建议。本项目旨在有效弥补现有平台在实践教学深度和学情适配精度上的不足[21]，不仅具有提升学生统计算法理解与数据分析实践能力的应用价值，也为统计学教育的数字化转型提供了可复制、可推广的设计思路与研究范式[22][23]。
+
+
+三、应查阅的主要参考文献：
+[1] 袁振国.教育数字化转型:转什么,怎么转[J].华东师范大学学报(教育科学版),2023,41(03):1-11.
+[2] 焦建利.ChatGPT助推学校教育数字化转型——人工智能时代学什么与怎么教[J].中国远程教育,2023,43(04):16-23.
+[3] 丰文林,温静,阎灵均.技术赋能基础教育教学改革高质量发展[J].教育科学论坛,2024,(14):38-40.
+[4] Chen, L., Chen, P., & Lin, Z. (2020). Artificial Intelligence in Education: A Review. IEEE Access, 8, 75264-75278.
+[5] 马莹莹,崔文昊.数据科学专业核心课程的教学设计与思考——以统计学习课程为例[J].高教学刊,2024,10(33):42-45.
+[6] 袁媛,吴果林,李锐.新工科背景下数据科学与大数据技术专业人才培养模式研究与实践[J].科教导刊,2024,(24):58-60.
+[7] 蒙明虑,邓树嵩,黄文静,等.大数据背景下阶段性整合式教学模式在卫生统计学课程的改革与实践[J].科技风,2024,(05):88-90.
+[8] Zawacki-Richter, O., & Naidu, S. (2022). Mapping research in student engagement and educational technology in higher education: A systematic evidence map. International Journal of Educational Technology in Higher Education, 19(1), 1-30.
+[9] Crompton, H., & Burke, D. (2023). Artificial intelligence in higher education: The state of the field. International Journal of Educational Technology in Higher Education, 20(1), 22.
+[10] Margaryan, A., Littlejohn, A., & Vojt, G. (2023). Are digital natives a myth or reality? University students' use of digital technologies. Computers & Education, 56(2), 429-440.
+[11] Zawacki-Richter, O., Marín, V. I., Bond, M., & Gouverneur, F. (2019). Systematic review of research on artificial intelligence applications in higher education. International Journal of Educational Technology in Higher Education, 16(1), 39.
+[12] Romero, C., & Ventura, S. (2020). Educational data mining: A review of the state of the art. IEEE Transactions on Systems, Man, and Cybernetics: Systems, 50(6), 1902-1922.
+[13] Bond, M., Khosravi, H., De Laat, M., et al. (2024). A meta-review of learning analytics research: Mapping the landscape. British Journal of Educational Technology, 55(1), 1-28.
+[14] Doroudi, S., & Brunskill, E. (2022). The misidentified identifiability problem of Bayesian knowledge tracing. Educational Data Mining, 14(1), 1-31.
+[15] Kross, S., & Guo, P. J. (2023). Practitioners teaching data science in industry and academia: Expectations, workflows, and challenges. CHI Conference on Human Factors in Computing Systems, 1-14.
+[16] Holstein, K., & McLaren, B. M. (2023). Co-designing with teachers to integrate AI into classrooms. International Journal of Artificial Intelligence in Education, 33(1), 1-25.
+[17] 巴思淳,张群.我国数字化教育资源研究现状及发展对策研究[J].软件导刊,2023,22(10):225-236.
+[18] Zhai, X., Chu, X., Chai, C. S., et al. (2021). A Review of Artificial Intelligence (AI) in Education from 2010 to 2020. Complexity, 2021, 1-18.
+[19] 庄唯. "数据计算及应用专业教学实践探索——以 “多元统计分析” 课程为例." Advances in Education 15 (2025): 253.
+[20] Viberg, O., Hatakka, M., Bälter, O., & Mavroudi, A. (2018). The current landscape of learning analytics in higher education. Computers in Human Behavior, 89, 98-110.
+[21] Bozkurt, A., & Sharma, R. C. (2023). Emergency remote teaching in a time of global crisis due to CoronaVirus pandemic. Asian Journal of Distance Education, 15(1), i-vi.
+[22] 王小宁.未来的教育趋势与展望[C]//北京大学出版社有限公司.2024年教育技术与未来教育研讨会论文集.辽宁熙式教育科技教育有限公司;,2024:4.
+[23] Holmes, W., Bialik, M., & Fadel, C. (2023). Artificial Intelligence in Education: Promises and Implications for Teaching and Learning. Center for Curriculum Redesign.

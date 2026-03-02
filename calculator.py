@@ -1108,7 +1108,7 @@ class SVMHistory:
             username = session.get('username', '未登录')
 
             db = connect_db()
-            cursor = db.cursor(pymysql.cursors.DictCursor)
+            cursor = db.cursor(pymilvus.cursors.DictCursor)
             sql = """
                     SELECT svm.*, user.username
                     FROM svm
@@ -1282,12 +1282,11 @@ class GenerateRecommendation:
         print("任务已推送到队列。")
         return json.dumps({'status': 'success', 'message': 'Task started'})
 
-# --- 请用下面的代码块完全替换您现有的 Recommendation 类 ---
 class Recommendation:
     def GET(self):
         if not session.get('logged_in'):
-            # 理论上应该重定向到登录页，但这里保持与您原来一致
-            return "用户未登录，请登录后再试。"
+            # 直接重定向到首页让用户登录
+            raise web.seeother('/')
             
         username = session.get('username')
         print(f"用户 '{username}' 请求推荐页面")
