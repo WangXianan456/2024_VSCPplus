@@ -24,6 +24,7 @@ from sklearn.preprocessing import StandardScaler
 import time
 import os
 from redis.lock import Lock
+import pymilvus
 from pymilvus import Milvus,connections, Collection, FieldSchema, CollectionSchema, DataType, utility
 
 
