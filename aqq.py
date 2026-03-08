@@ -8,7 +8,7 @@ MYSQL_CONFIG = {
     'host': 'localhost',
     'port': 3306,
     'user': 'root',
-    'password': '123456', # 请替换为你的MySQL密码
+    'password': '123456',
     'db': 'calculater',
     'charset': 'utf8mb4',
     'cursorclass': pymysql.cursors.DictCursor

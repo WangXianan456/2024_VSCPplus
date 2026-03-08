@@ -28,10 +28,10 @@ import pymilvus
 from pymilvus import Milvus,connections, Collection, FieldSchema, CollectionSchema, DataType, utility
 
 
-def sqlSelect(sql):
+def sqlSelect(sql, params=None):
     conn = pymysql.connect(host='localhost', port=3306, user='root', passwd='123456', db='calculater')
     cur = conn.cursor()
-    cur.execute(sql)
+    cur.execute(sql, params)
     sqlData = cur.fetchall()
     cur.close()
     conn.close()
@@ -114,25 +114,6 @@ else:
     milvus_collection = Collection(collection_name)
     milvus_collection.load()
     
-# MySQL connection
-
-# MySQL connection (MySQL 8.4 compatible)
-def connect_db():
-    try:
-        # 对于较新的 PyMySQL 版本
-        return pymysql.connect(
-            host='localhost',
-            port=3306,
-            user='root',
-            password='123456',
-            db='calculater',
-            charset='utf8mb4',
-        
-        )
-    except pymysql.Error as err:
-        print(f"Database error: {err}")
-        return None
-
 
 # Redis distributed lock
 def acquire_lock(lock_name, timeout=10):
@@ -250,7 +231,7 @@ def generate_recommendations_for_user(username):
     for item in combined_history:
         model = item['model']
         model_counts[model] = model_counts.get(model, 0) + 1
-    recommended_models = user_prefs.get('preferred_  models', []) + list(model_counts.keys())
+    recommended_models = user_prefs.get('preferred_models', []) + list(model_counts.keys())
     recommended_models = list(dict.fromkeys(recommended_models))[:3]
     
     recommendations = {
@@ -444,7 +425,7 @@ def add_user(username, account, password):
                            (username, account, password))
             db.commit()
             return True
-        except mysql.connector.Error as err:
+        except pymysql.Error as err:
             print(f"添加用户错误: {err}")
         finally:
             cursor.close()
@@ -509,12 +490,12 @@ def get_user_id_from_db(account):
                     return result[0]  # 返回用户的id
                 else:
                     raise ValueError("未找到用户！")
-            except mysql.connector.Error as err:
+            except pymysql.Error as err:
                 print(f"数据库错误: {err}")
             finally:
                 cursor.close()
                 db.close()
-    return ValueError("用户未登录")
+    raise ValueError("用户未登录")
 
 
 class Calculate:
@@ -626,60 +607,37 @@ class UploadCSV:
 
 
 class goldfish:
-    def GET(self):
-        username = session.get('username', '未登录')
-        id = 13
-        sql = f"select * from abalone where id={id}"
-        sqlData = sqlSelect(sql)
-        models = {
-            '线性回归': '线性回归.model',
-            '决策树': '决策树.model',
-            '随机森林': '随机森林.model',
-            '梯度提升机': '梯度提升机.model',
-            '支持向量机': '支持向量机.model'
-        }
+    _MODELS = {
+        '线性回归': '线性回归.model',
+        '决策树': '决策树.model',
+        '随机森林': '随机森林.model',
+        '梯度提升机': '梯度提升机.model',
+        '支持向量机': '支持向量机.model'
+    }
+
+    def _predict(self, bid):
+        sqlData = sqlSelect("select * from abalone where id=%s", (bid,))
         results = {}
         model_errors = {}
-        real_age = float(sqlData[0][-1])  # 假设真实年龄存储在最后一个字段
-
-        for name, filename in models.items():
+        real_age = float(sqlData[0][-1])
+        for name, filename in self._MODELS.items():
             model = joblib.load(filename)
             testX = [[float(t) for t in sqlData[0][1:-1]]]
             pred_age = model.predict(testX)[0]
             results[name] = round(pred_age, 4)
-            # 计算平均绝对误差
-            abs_error = abs(pred_age - real_age)
-            model_errors[name] = round(abs_error, 4)
+            model_errors[name] = round(abs(pred_age - real_age), 4)
+        return bid, sqlData, results, model_errors
 
-        return render.goldfish(id, sqlData, results, model_errors, username)
+    def GET(self):
+        username = session.get('username', '未登录')
+        bid, sqlData, results, model_errors = self._predict(13)
+        return render.goldfish(bid, sqlData, results, model_errors, username)
 
     def POST(self):
         username = session.get('username', '未登录')
-        webData = web.input()
-        id = webData["bid"]
-        sql = f"select * from abalone where id={id}"
-        sqlData = sqlSelect(sql)
-        models = {
-            '线性回归': '线性回归.model',
-            '决策树': '决策树.model',
-            '随机森林': '随机森林.model',
-            '梯度提升机': '梯度提升机.model',
-            '支持向量机': '支持向量机.model'
-        }
-        results = {}
-        model_errors = {}
-        real_age = float(sqlData[0][-1])  # 假设真实年龄存储在最后一个字段
-
-        for name, filename in models.items():
-            model = joblib.load(filename)
-            testX = [[float(t) for t in sqlData[0][1:-1]]]
-            pred_age = model.predict(testX)[0]
-            results[name] = round(pred_age, 4)
-            # 计算平均绝对误差
-            abs_error = abs(pred_age - real_age)
-            model_errors[name] = round(abs_error, 4)
-
-        return render.goldfish(id, sqlData, results, model_errors, username)
+        bid = int(web.input().get("bid", 13))
+        bid, sqlData, results, model_errors = self._predict(bid)
+        return render.goldfish(bid, sqlData, results, model_errors, username)
 
 
 class UploadAndPredict:
@@ -694,9 +652,8 @@ class UploadAndPredict:
         model_file = webData['modelFile'].file
         model = joblib.load(model_file)  # 加载上传的模型文件
 
-        id = webData.get('bid', 13)  # 可以从表单中获取ID或默认使用ID 13
-        sql = f"select * from abalone where id={id}"
-        sqlData = sqlSelect(sql)
+        bid = int(webData.get('bid', 13))
+        sqlData = sqlSelect("select * from abalone where id=%s", (bid,))
         if not sqlData:
             return web.notfound(json.dumps({"error": "未找到指定的数据。"}))
 
@@ -765,7 +722,7 @@ class calculate1:
         plt.xlabel('Feature 1')
         plt.ylabel('Feature 2')
         plt.title('Decision Boundary')
-        plt.savefig('/decision_boundary.png')
+        plt.savefig(os.path.join(tempfile.gettempdir(), 'decision_boundary.png'))
         plt.close()
 
         web.header('Content-Type', 'application/json')
@@ -878,6 +835,8 @@ class HistoryPage:
             cursor.close()
             db.close()
             return render.FisherHistory(username, history_data)
+        else:
+            return render.HistoryError()
 
 
 class SaveLinearHistory:
@@ -1109,7 +1068,7 @@ class SVMHistory:
             username = session.get('username', '未登录')
 
             db = connect_db()
-            cursor = db.cursor(pymilvus.cursors.DictCursor)
+            cursor = db.cursor(pymysql.cursors.DictCursor)
             sql = """
                     SELECT svm.*, user.username
                     FROM svm
@@ -1200,9 +1159,19 @@ class UpdateUser:
         db.close()
         return json.dumps({'success': True, 'message': '用户信息已更新'})
 class static:
+    _MIME = {
+        '.css': 'text/css', '.js': 'application/javascript',
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+        '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
+        '.eot': 'application/vnd.ms-fontobject', '.json': 'application/json',
+        '.html': 'text/html', '.txt': 'text/plain', '.csv': 'text/csv',
+    }
     def GET(self, path):
         try:
-            web.header('Content-Type', 'application/javascript; charset=UTF-8')
+            ext = os.path.splitext(path)[1].lower()
+            content_type = self._MIME.get(ext, 'application/octet-stream')
+            web.header('Content-Type', content_type + '; charset=UTF-8')
             return open('static/' + path, 'rb').read()
         except IOError:
             raise web.notfound()
@@ -1453,11 +1422,8 @@ render = web.template.render('templates/', globals={
     'session': session
 })
 
-render_pending = web.template.render('templates/')
 if __name__ == "__main__":
-    # Create sessions directory if not exists
     if not os.path.exists('sessions'):
         os.makedirs('sessions')
     
     web.httpserver.runsimple(app.wsgifunc(), ("127.0.0.1", 8080))
-    app.run()
